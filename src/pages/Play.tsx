@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 import { InfoBox } from "@/components/InfoBox";
 import { QRScanner } from "@/components/QRScanner";
-import { BookOpen, Key, ScanLine, CheckCircle2, Puzzle, Home, Timer, Star } from "lucide-react";
+import { BookOpen, Key, ScanLine, CheckCircle2, Puzzle, Home, Timer, Star, Menu, X } from "lucide-react";
 import { toast } from "sonner";
 
 const STRIKES_PER_TIER = 3;       // wrong answers before a cooldown triggers
@@ -344,8 +344,9 @@ export default function Play() {
   const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
   const onCooldown = cooldownLeft > 0;
   const story = challenges.find((c) => c.level === 1)?.story_text;
-  const viewedChallenge = selectedSection === currentLevel ? challenge : null;
-  const viewingActiveChallenge = selectedSection === currentLevel;
+  const selectedChallenge = typeof selectedSection === "number"
+    ? challenges.find((c) => c.level === selectedSection)
+    : null;
 
   // Countdown timer
   const timeLeft = timeLimitExpiry !== null ? Math.max(0, Math.ceil((timeLimitExpiry - now) / 1000)) : null;
@@ -662,7 +663,7 @@ export default function Play() {
           <span className="flex items-center gap-2 text-sm font-bold text-primary">
             <Menu className="h-5 w-5" /> Activity map
           </span>
-          <span className="text-xs text-muted-foreground">{currentLevel}/5 unlocked</span>
+          <span className="text-xs text-muted-foreground">{currentLevel}/{totalLevels} unlocked</span>
         </button>
 
         {showNavigation && (
@@ -681,7 +682,7 @@ export default function Play() {
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-base font-bold text-primary">Activity map</h2>
-                  <p className="text-xs text-muted-foreground">{currentLevel}/5 unlocked</p>
+                  <p className="text-xs text-muted-foreground">{currentLevel}/{totalLevels} unlocked</p>
                 </div>
                 <button
                   type="button"
@@ -711,8 +712,10 @@ export default function Play() {
                       disabled={c.level !== currentLevel}
                       onClick={() => { setSelectedSection(c.level); setShowNavigation(false); }}
                       className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
-                        c.level === currentLevel
+                        selectedSection === c.level
                           ? "bg-action text-action-foreground"
+                          : c.level === currentLevel
+                          ? "bg-muted/50 text-foreground hover:bg-muted"
                           : "cursor-not-allowed bg-muted/50 text-muted-foreground opacity-70"
                       }`}
                     >
@@ -724,6 +727,42 @@ export default function Play() {
           </>
         )}
 
+        {selectedSection === "story" ? (
+          <div className="app-card space-y-3 animate-pop-in">
+            <div className="flex items-center gap-2 text-primary">
+              <BookOpen className="w-5 h-5" />
+              <h2 className="text-lg font-bold">The Story</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Revisit the story whenever you need its clues.
+            </p>
+            <div className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90 rounded-xl bg-muted/50 p-3">
+              {story || "No story has been added for this activity."}
+            </div>
+          </div>
+        ) : selectedSection !== currentLevel ? (
+          <div className="app-card space-y-3 animate-pop-in">
+            <div className="flex items-center gap-2 text-primary">
+              <CheckCircle2 className="w-5 h-5" />
+              <h2 className="text-lg font-bold">Compartment {selectedSection}</h2>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              This compartment is complete. You can return to the current challenge from the activity map.
+            </p>
+            {selectedChallenge?.reveal_message && (
+              <div className="rounded-xl bg-muted/50 p-3 text-sm text-foreground/90">
+                {selectedChallenge.reveal_message}
+              </div>
+            )}
+            {compartmentPoints[String(selectedSection)] !== undefined && (
+              <div className="flex items-center gap-2 text-sm font-semibold text-amber-600">
+                <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                {compartmentPoints[String(selectedSection)]} pts earned
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
         <InfoBox icon={Key} label={`Compartment ${currentLevel} Padlock`} tone="warning">
           {`Use the revealed code to open Compartment ${currentLevel}. Scan the QR inside.`}
         </InfoBox>
@@ -999,6 +1038,9 @@ export default function Play() {
                 <button onClick={advanceLevel} className="btn-primary">Finish Activity</button>
               )}
             </div>
+        )}
+
+        </div>
           </>
         )}
 
