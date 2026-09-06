@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 import { InfoBox } from "@/components/InfoBox";
 import { QRScanner } from "@/components/QRScanner";
-import { BookOpen, Key, ScanLine, CheckCircle2, Puzzle, Home, Menu, X } from "lucide-react";
+import { BookOpen, Key, ScanLine, CheckCircle2, Puzzle, Home, Menu, X, Timer, Star } from "lucide-react";
 import { toast } from "sonner";
 
 const STRIKES_PER_TIER = 3;       // wrong answers before a cooldown triggers
