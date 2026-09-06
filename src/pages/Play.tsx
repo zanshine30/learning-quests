@@ -52,6 +52,8 @@ export default function Play() {
   const [cooldownTier, setCooldownTier] = useState(0); // how many cooldowns have fired
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
   const [now, setNow] = useState(Date.now());
+  const [selectedSection, setSelectedSection] = useState<"story" | number>("story");
+  const [showNavigation, setShowNavigation] = useState(false);
 
   // Per-compartment countdown timer
   const [timeLimitExpiry, setTimeLimitExpiry] = useState<number | null>(null); // epoch ms when timer expires
@@ -272,6 +274,10 @@ export default function Play() {
     setLastEarnedPoints(null);
   }, [currentLevel]);
 
+  useEffect(() => {
+    setSelectedSection(currentLevel);
+  }, [currentLevel]);
+
   // Session status gate — shown before the main game UI
   if (sessionStatus !== "active") {
     const statusContent: Record<string, { icon: string | null; heading: string; body: string; showHome: boolean }> = {
@@ -337,6 +343,9 @@ export default function Play() {
 
   const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
   const onCooldown = cooldownLeft > 0;
+  const story = challenges.find((c) => c.level === 1)?.story_text;
+  const viewedChallenge = selectedSection === currentLevel ? challenge : null;
+  const viewingActiveChallenge = selectedSection === currentLevel;
 
   // Countdown timer
   const timeLeft = timeLimitExpiry !== null ? Math.max(0, Math.ceil((timeLimitExpiry - now) / 1000)) : null;
@@ -643,6 +652,77 @@ export default function Play() {
     <div className="app-shell pb-12">
       <AppHeader subtitle={`Group: ${group.group_name} · Compartment ${currentLevel}/${totalLevels}`} />
       <div className="px-4 space-y-4">
+        <button
+          type="button"
+          onClick={() => setShowNavigation(true)}
+          aria-expanded={showNavigation}
+          aria-controls="activity-navigation"
+          className="flex w-full items-center justify-between rounded-2xl bg-card px-4 py-3 text-left shadow-[var(--shadow-card)] transition hover:bg-muted/50"
+        >
+          <span className="flex items-center gap-2 text-sm font-bold text-primary">
+            <Menu className="h-5 w-5" /> Activity map
+          </span>
+          <span className="text-xs text-muted-foreground">{currentLevel}/5 unlocked</span>
+        </button>
+
+        {showNavigation && (
+          <>
+            <button
+              type="button"
+              aria-label="Close activity map"
+              onClick={() => setShowNavigation(false)}
+              className="fixed inset-0 z-30 bg-foreground/30"
+            />
+            <aside
+              id="activity-navigation"
+              aria-label="Activity navigation"
+              className="fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] space-y-4 bg-card p-5 shadow-[var(--shadow-elevated)] animate-slide-in-left"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-primary">Activity map</h2>
+                  <p className="text-xs text-muted-foreground">{currentLevel}/5 unlocked</p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close activity map"
+                  onClick={() => setShowNavigation(false)}
+                  className="rounded-full p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => { setSelectedSection("story"); setShowNavigation(false); }}
+                  className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                    selectedSection === "story" ? "bg-action text-action-foreground" : "bg-muted/50 text-foreground hover:bg-muted"
+                  }`}
+                >
+                  Story
+                </button>
+                {challenges
+                  .filter((c) => c.level <= currentLevel)
+                  .map((c) => (
+                    <button
+                      key={c.level}
+                      type="button"
+                      disabled={c.level !== currentLevel}
+                      onClick={() => { setSelectedSection(c.level); setShowNavigation(false); }}
+                      className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                        c.level === currentLevel
+                          ? "bg-action text-action-foreground"
+                          : "cursor-not-allowed bg-muted/50 text-muted-foreground opacity-70"
+                      }`}
+                    >
+                      Compartment {c.level}{c.level === currentLevel ? " · current" : " · completed"}
+                    </button>
+                  ))}
+              </div>
+            </aside>
+          </>
+        )}
 
         <InfoBox icon={Key} label={`Compartment ${currentLevel} Padlock`} tone="warning">
           {`Use the revealed code to open Compartment ${currentLevel}. Scan the QR inside.`}
@@ -876,8 +956,8 @@ export default function Play() {
                   : timeExpired ? "Submit Answer (1 pt)"
                   : "Submit Answer"}
               </button>
-            </>
-          )}
+                </>
+              )}
 
           {success && (
             <div className="rounded-xl bg-success/10 border-2 border-success p-4 space-y-3 animate-pop-in">
@@ -919,8 +999,8 @@ export default function Play() {
                 <button onClick={advanceLevel} className="btn-primary">Finish Activity</button>
               )}
             </div>
-          )}
-        </div>
+          </>
+        )}
 
       </div>
 
