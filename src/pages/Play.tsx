@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AppHeader } from "@/components/AppHeader";
 import { InfoBox } from "@/components/InfoBox";
 import { QRScanner } from "@/components/QRScanner";
-import { BookOpen, Key, ScanLine, CheckCircle2, Puzzle, Home } from "lucide-react";
+import { BookOpen, Key, ScanLine, CheckCircle2, Puzzle, Home, Menu, X } from "lucide-react";
 import { toast } from "sonner";
 
 const STRIKES_PER_TIER = 3;       // wrong answers before a cooldown triggers
@@ -28,6 +28,8 @@ export default function Play() {
   const [cooldownTier, setCooldownTier] = useState(0); // how many cooldowns have fired
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
   const [now, setNow] = useState(Date.now());
+  const [selectedSection, setSelectedSection] = useState<"story" | number>("story");
+  const [showNavigation, setShowNavigation] = useState(false);
 
   // tick for cooldown countdown
   useEffect(() => {
@@ -180,6 +182,10 @@ export default function Play() {
     setCooldownUntil(0);
   }, [currentLevel]);
 
+  useEffect(() => {
+    setSelectedSection(currentLevel);
+  }, [currentLevel]);
+
   // Session status gate — shown before the main game UI
   if (sessionStatus !== "active") {
     const statusContent: Record<string, { icon: string | null; heading: string; body: string; showHome: boolean }> = {
@@ -245,6 +251,9 @@ export default function Play() {
 
   const cooldownLeft = Math.max(0, Math.ceil((cooldownUntil - now) / 1000));
   const onCooldown = cooldownLeft > 0;
+  const story = challenges.find((c) => c.level === 1)?.story_text;
+  const viewedChallenge = selectedSection === currentLevel ? challenge : null;
+  const viewingActiveChallenge = selectedSection === currentLevel;
 
   function validate(input: string): boolean {
     const c = challenge;
@@ -339,37 +348,115 @@ export default function Play() {
     }
   }
 
-  // Level 1 shows story first
   return (
     <div className="app-shell pb-12">
       <AppHeader subtitle={`Group: ${group.group_name} · Compartment ${currentLevel}/5`} />
       <div className="px-4 space-y-4">
+        <button
+          type="button"
+          onClick={() => setShowNavigation(true)}
+          aria-expanded={showNavigation}
+          aria-controls="activity-navigation"
+          className="flex w-full items-center justify-between rounded-2xl bg-card px-4 py-3 text-left shadow-[var(--shadow-card)] transition hover:bg-muted/50"
+        >
+          <span className="flex items-center gap-2 text-sm font-bold text-primary">
+            <Menu className="h-5 w-5" /> Activity map
+          </span>
+          <span className="text-xs text-muted-foreground">{currentLevel}/5 unlocked</span>
+        </button>
 
-        {currentLevel === 1 && challenges.find((c) => c.level === 1)?.story_text && (
+        {showNavigation && (
+          <>
+            <button
+              type="button"
+              aria-label="Close activity map"
+              onClick={() => setShowNavigation(false)}
+              className="fixed inset-0 z-30 bg-foreground/30"
+            />
+            <aside
+              id="activity-navigation"
+              aria-label="Activity navigation"
+              className="fixed inset-y-0 left-0 z-40 w-[min(18rem,85vw)] space-y-4 bg-card p-5 shadow-[var(--shadow-elevated)] animate-slide-in-left"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-primary">Activity map</h2>
+                  <p className="text-xs text-muted-foreground">{currentLevel}/5 unlocked</p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Close activity map"
+                  onClick={() => setShowNavigation(false)}
+                  className="rounded-full p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => { setSelectedSection("story"); setShowNavigation(false); }}
+                  className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                    selectedSection === "story" ? "bg-action text-action-foreground" : "bg-muted/50 text-foreground hover:bg-muted"
+                  }`}
+                >
+                  Story
+                </button>
+                {challenges
+                  .filter((c) => c.level <= currentLevel)
+                  .map((c) => (
+                    <button
+                      key={c.level}
+                      type="button"
+                      disabled={c.level !== currentLevel}
+                      onClick={() => { setSelectedSection(c.level); setShowNavigation(false); }}
+                      className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${
+                        c.level === currentLevel
+                          ? "bg-action text-action-foreground"
+                          : "cursor-not-allowed bg-muted/50 text-muted-foreground opacity-70"
+                      }`}
+                    >
+                      Compartment {c.level}{c.level === currentLevel ? " · current" : " · completed"}
+                    </button>
+                  ))}
+              </div>
+            </aside>
+          </>
+        )}
+
+        {selectedSection === "story" && (
           <div className="app-card space-y-3">
             <h2 className="text-lg font-bold text-primary">The Last Message of Room 407</h2>
             <p className="text-sm text-muted-foreground">Read the story carefully. You will need details from it to solve the compartments.</p>
-            <div className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90 max-h-72 overflow-auto rounded-xl bg-muted/50 p-3">
-              {challenges.find((c) => c.level === 1)?.story_text}
-            </div>
+            {story ? (
+              <div className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90 max-h-72 overflow-auto rounded-xl bg-muted/50 p-3">
+                {story}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Your teacher has not added the story yet.</p>
+            )}
           </div>
         )}
 
-        <InfoBox icon={Key} label={`Compartment ${currentLevel} Padlock`} tone="warning">
-          {currentLevel === 1
-            ? `Open Compartment 1 with the code your teacher provided. Scan the QR inside to begin.`
-            : `Use the revealed code to open Compartment ${currentLevel}. Scan the QR inside.`}
-        </InfoBox>
+        {viewedChallenge && (
+          <>
+            {viewingActiveChallenge && (
+              <InfoBox icon={Key} label={`Compartment ${currentLevel} Padlock`} tone="warning">
+                {currentLevel === 1
+                  ? `Open Compartment 1 with the code your teacher provided. Scan the QR inside to begin.`
+                  : `Use the revealed code to open Compartment ${currentLevel}. Scan the QR inside.`}
+              </InfoBox>
+            )}
 
-        <div className="app-card space-y-3 animate-pop-in">
-          <div className="flex items-center gap-2 text-primary">
-            <Puzzle className="w-5 h-5" />
-            <h3 className="font-bold">Compartment {currentLevel} Challenge</h3>
-          </div>
-          <p className="text-sm whitespace-pre-wrap text-foreground/90">{challenge.question_text}</p>
+            <div className="app-card space-y-3 animate-pop-in">
+              <div className="flex items-center gap-2 text-primary">
+                <Puzzle className="w-5 h-5" />
+                <h3 className="font-bold">Compartment {viewedChallenge.level} Challenge</h3>
+              </div>
+              <p className="text-sm whitespace-pre-wrap text-foreground/90">{viewedChallenge.question_text}</p>
 
-          {!success && (
-            <>
+              {viewingActiveChallenge && !success && (
+                <>
               {challenge.type === "multiple_choice" ? (
                 <div className="space-y-2">
                   {(challenge.options as any[]).map((o: any) => {
@@ -438,30 +525,34 @@ export default function Play() {
                   : busy ? "Checking..."
                   : "Submit Answer"}
               </button>
-            </>
-          )}
+                </>
+              )}
 
-          {success && (
-            <div className="rounded-xl bg-success/10 border-2 border-success p-4 space-y-3 animate-pop-in">
-              <div className="flex items-center gap-2 text-success font-bold">
-                <CheckCircle2 className="w-6 h-6" /> Code Accepted!
-              </div>
-              <p className="text-sm text-foreground/80">{challenge.reveal_message}</p>
-              {currentLevel < 5 ? (
-                <button onClick={() => setShowScanner(true)} className="btn-primary flex items-center justify-center gap-2">
-                  <ScanLine className="w-5 h-5" /> Scan Compartment QR
-                </button>
-              ) : (
-                <button onClick={advanceLevel} className="btn-primary">Finish Activity</button>
+              {viewingActiveChallenge && success && (
+                <div className="rounded-xl bg-success/10 border-2 border-success p-4 space-y-3 animate-pop-in">
+                  <div className="flex items-center gap-2 text-success font-bold">
+                    <CheckCircle2 className="w-6 h-6" /> Code Accepted!
+                  </div>
+                  <p className="text-sm text-foreground/80">{challenge.reveal_message}</p>
+                  {currentLevel < 5 ? (
+                    <button onClick={() => setShowScanner(true)} className="btn-primary flex items-center justify-center gap-2">
+                      <ScanLine className="w-5 h-5" /> Scan Compartment QR
+                    </button>
+                  ) : (
+                    <button onClick={advanceLevel} className="btn-primary">Finish Activity</button>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
+          </>
+        )}
 
-        {/* Teacher bypass for demo */}
-        <button onClick={advanceLevel} className="btn-outline flex items-center justify-center gap-2">
-          <BookOpen className="w-4 h-4" /> Next (Teacher use only)
-        </button>
+        {/* Teacher bypass for local development only */}
+        {import.meta.env.DEV && viewingActiveChallenge && (
+          <button onClick={advanceLevel} className="btn-outline flex items-center justify-center gap-2">
+            <BookOpen className="w-4 h-4" /> Next (Teacher use only)
+          </button>
+        )}
       </div>
 
       {showScanner && <QRScanner onResult={handleScan} onClose={() => setShowScanner(false)} />}
