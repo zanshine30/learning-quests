@@ -6,8 +6,19 @@ import { useAuth } from "@/hooks/useAuth";
 import { AppHeader } from "@/components/AppHeader";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { DEFAULT_CHALLENGES, DEFAULT_STORY, genJoinCode } from "@/lib/gameDefaults";
-import { Plus, LogOut, ExternalLink, Trophy, QrCode, X, Trash2, PlayCircle, StopCircle, ChevronDown, ChevronUp, Users, History, Clock } from "lucide-react";
+import { Plus, LogOut, ExternalLink, Trophy, QrCode, X, Trash2, PlayCircle, StopCircle, ChevronDown, ChevronUp, Users, History, Clock, Star } from "lucide-react";
 import { toast } from "sonner";
+
+/** Sum all per-compartment points stored in question_assignments._pts */
+function extractPoints(qa: any): number {
+  if (!qa || typeof qa !== "object") return 0;
+  const pts = qa._pts;
+  if (!pts || typeof pts !== "object") return 0;
+  return Object.values(pts as Record<string, number>).reduce(
+    (sum: number, v) => sum + (typeof v === "number" ? v : 0),
+    0
+  );
+}
 
 // ── FLIP-animated leaderboard row ───────────────────────────────────────────
 // Tracks its own DOM position and plays a smooth slide when the list reorders.
@@ -48,6 +59,7 @@ interface AnimatedRowProps {
   elapsed: number;
   currentLevel: number;
   pct: number;
+  points: number;
   membersExpanded: boolean;
   memberList: string[];
   onToggleExpand: () => void;
@@ -55,7 +67,7 @@ interface AnimatedRowProps {
 
 function AnimatedRow({
   groupId, rank, isFinished, groupName, password, elapsed,
-  currentLevel, pct, membersExpanded, memberList, onToggleExpand,
+  currentLevel, pct, points, membersExpanded, memberList, onToggleExpand,
 }: AnimatedRowProps) {
   const ref = useRef<HTMLDivElement>(null);
   const prevTop = useRef<number | null>(null);
@@ -164,6 +176,12 @@ function AnimatedRow({
             </span>
 
             <div className="flex items-center gap-2 shrink-0">
+              {points > 0 && (
+                <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-500 tabular-nums">
+                  <Star className="w-3 h-3 fill-current" />
+                  {points}
+                </span>
+              )}
               <span className={`text-xs tabular-nums ${meta ? meta.text : "text-muted-foreground"}`}>
                 {isFinished ? `✓ ${m}m ${sec}s` : `L${currentLevel}/5 · ${m}m ${sec}s`}
               </span>
@@ -321,10 +339,110 @@ export default function TeacherDashboard() {
 
   async function startSession(sessionId: string) {
     setStartingSession(sessionId);
+
+    // 1. Fetch all challenges for this session so we know the question pool per level.
+    const { data: challenges } = await supabase
+      .from("challenges")
+      .select("level, type, options, keywords")
+      .eq("session_id", sessionId)
+      .order("level");
+
+    // 2. Fetch all groups registered for this session.
+    const { data: sessionGroups } = await supabase
+      .from("groups")
+      .select("id")
+      .eq("session_id", sessionId);
+
+    // 3. For each group, randomly pick N question indices per compartment level,
+    //    where N = display_count set by the teacher (defaults to 1).
+    //    The assignment is stored as:
+    //      single:   { "1": 2 }          → one index (backwards-compat)
+    //      multiple: { "1": [0, 2] }     → array of indices
+    function poolInfo(ch: any): { count: number; displayCount: number } {
+      if (!ch) return { count: 1, displayCount: 1 };
+
+      if (ch.type === "sequence" || ch.type === "final_riddle") {
+        const opts = ch.options;
+        // New wrapped format: { variants: [...], display_count: N }
+        if (opts && !Array.isArray(opts) && "variants" in opts) {
+          const variants = (opts.variants as any[]) || [];
+          return { count: variants.length, displayCount: opts.display_count ?? 1 };
+        }
+        // Legacy flat pool: [{question_text, correct_answer_code}]
+        if (Array.isArray(opts) && opts.length > 0 && "correct_answer_code" in opts[0]) {
+          return { count: opts.length, displayCount: 1 };
+        }
+        return { count: 1, displayCount: 1 };
+      }
+
+      if (ch.type === "multiple_choice") {
+        const opts = ch.options;
+        // New wrapped format: { questions: [...], display_count: N }
+        if (opts && !Array.isArray(opts) && "questions" in opts) {
+          const qs = (opts.questions as any[]) || [];
+          return { count: qs.length, displayCount: opts.display_count ?? 1 };
+        }
+        // Legacy multi-Q: [{text, choices:[]}]
+        if (Array.isArray(opts) && opts.length > 0 && "choices" in opts[0]) {
+          return { count: opts.length, displayCount: 1 };
+        }
+        return { count: 1, displayCount: 1 };
+      }
+
+      if (ch.type === "short_answer" || ch.type === "long_text") {
+        const raw = ch.keywords;
+        // New wrapped format: { questions: [...], display_count: N }
+        if (raw && !Array.isArray(raw) && "questions" in raw) {
+          const qs = (raw.questions as any[]) || [];
+          return { count: qs.length, displayCount: raw.display_count ?? 1 };
+        }
+        // Legacy multi-Q: [{text, keywords:[]}]
+        if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === "object" && "text" in raw[0]) {
+          return { count: raw.length, displayCount: 1 };
+        }
+        return { count: 1, displayCount: 1 };
+      }
+
+      return { count: 1, displayCount: 1 };
+    }
+
+    /** Fisher-Yates shuffle, returns first `n` elements */
+    function pickRandom(count: number, pick: number): number[] {
+      const indices = Array.from({ length: count }, (_, i) => i);
+      for (let i = indices.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [indices[i], indices[j]] = [indices[j], indices[i]];
+      }
+      return indices.slice(0, Math.min(pick, count));
+    }
+
+    if (sessionGroups && sessionGroups.length > 0 && challenges && challenges.length > 0) {
+      const updates = sessionGroups.map((g) => {
+        const assignments: Record<string, number | number[]> = {};
+        challenges.forEach((ch) => {
+          const { count, displayCount } = poolInfo(ch);
+          if (displayCount <= 1) {
+            // Single assignment — backwards-compatible scalar
+            assignments[String(ch.level)] = Math.floor(Math.random() * count);
+          } else {
+            // Multiple assignment — array of indices
+            assignments[String(ch.level)] = pickRandom(count, displayCount);
+          }
+        });
+        return supabase
+          .from("groups")
+          .update({ question_assignments: assignments })
+          .eq("id", g.id);
+      });
+      await Promise.all(updates);
+    }
+
+    // 4. Mark the session as started.
     const { error } = await supabase
       .from("sessions")
       .update({ started_at: new Date().toISOString() })
       .eq("id", sessionId);
+
     if (error) toast.error(error.message);
     else {
       toast.success("Session started! All groups are now live.");
@@ -680,6 +798,7 @@ export default function TeacherDashboard() {
                         )
                       : 0;
                     const pct = isFinished ? 100 : ((g.current_level - 1) / 5) * 100;
+                    const points = extractPoints(g.question_assignments);
                     const membersExpanded = expandedGroups.has(g.id);
                     const memberList: string[] = g.members || [];
                     return (
@@ -693,6 +812,7 @@ export default function TeacherDashboard() {
                         elapsed={elapsed}
                         currentLevel={g.current_level}
                         pct={pct}
+                        points={points}
                         membersExpanded={membersExpanded}
                         memberList={memberList}
                         onToggleExpand={() => toggleGroupExpand(g.id)}
@@ -821,7 +941,15 @@ export default function TeacherDashboard() {
                                       <span className="min-w-0 flex-1 font-medium truncate">{g.group_name}</span>
                                     </div>
                                     {isFinished ? (
-                                      <span className="tabular-nums text-xs text-muted-foreground shrink-0">✓ {m}m {sec}s</span>
+                                      <span className="flex items-center gap-2 shrink-0">
+                                        {extractPoints(g.question_assignments) > 0 && (
+                                          <span className="flex items-center gap-0.5 text-xs font-bold text-amber-500 tabular-nums">
+                                            <Star className="w-3 h-3 fill-current" />
+                                            {extractPoints(g.question_assignments)}
+                                          </span>
+                                        )}
+                                        <span className="tabular-nums text-xs text-muted-foreground">✓ {m}m {sec}s</span>
+                                      </span>
                                     ) : (
                                       <span className="text-xs text-muted-foreground shrink-0">L{g.current_level}/5</span>
                                     )}
